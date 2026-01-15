@@ -19,6 +19,7 @@ pyvenv.cfg
 TempChunks/
 
 # Data & outputs
+data/*.csv
 *.parquet
 *.csv~
 dataset_creation_log.txt

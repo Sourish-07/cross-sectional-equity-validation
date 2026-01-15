@@ -1,15 +1,36 @@
-# Ignore virtual environment
-venv/
-.venv/
-env/
-
-# Ignore Python cache
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-# Ignore system files
+# Virtual environments
+stellar/
+venv/
+env/
+Lib/
+Scripts/
+include/
+share/
+pyvenv.cfg
+
+# Jupyter / temp
+.ipynb_checkpoints/
+TempChunks/
+
+# Data & outputs
+*.parquet
+*.csv~
+dataset_creation_log.txt
+view.pdf
+
+# Scratch / personal
+111.py
+INFORMATION.txt
+
+# OS
 .DS_Store
 
 # Remove devcontainer folder
 .devcontainer/
-
+Thumbs.db

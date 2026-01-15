@@ -1,0 +1,147 @@
+\documentclass[11pt]{article}
+
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{geometry}
+\usepackage{natbib}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{setspace}
+
+\geometry{margin=1in}
+\onehalfspacing
+
+\title{An Empirical Evaluation of Cross-Sectional Equity Signals Under Backtest Overfitting Diagnostics}
+
+\author{
+Sourish Mudumby Venugopal \\
+\textit{Rutgers University}
+\and
+Shrish Mudumby Venugopal \\
+\textit{Rutgers University}
+}
+
+\date{\today}
+
+\begin{document}
+\maketitle
+
+% ---------------- Abstract ----------------
+\begin{abstract}
+\noindent
+This paper presents a large-scale empirical replication and diagnostic study of simple cross-sectional equity return prediction signals using modern validation techniques designed to mitigate backtest overfitting. Using over 25 million U.S. equity stock-day observations, we implement interpretable momentum, reversal, and volume-based features commonly studied in the asset pricing literature. Model evaluation is conducted under Combinatorially Purged Cross-Validation (CPCV), and selection bias is quantified using the Probability of Backtest Overfitting (PBO). While in-sample results suggest weak predictive structure, out-of-sample performance deteriorates substantially, with high turnover and a PBO estimate of approximately 0.60. Rather than proposing new signals or models, this study aims to illustrate how rigorous validation alters conclusions about the economic robustness of widely used cross-sectional strategies.
+\end{abstract}
+
+% ======================================================
+\section{Introduction}
+A large empirical literature documents cross-sectional relationships between firm characteristics and future equity returns. Canonical examples include momentum \citep{jegadeesh1993returns}, short-term reversal \citep{lehmann1990fads}, and volume-related effects \citep{gervais2001high}. These findings motivate both academic asset pricing models and systematic trading strategies.
+However, the reliability of such results depends critically on the evaluation methodology. Financial return data exhibit strong temporal dependence, non-stationarity, and low signal-to-noise ratios. As a result, naive backtesting procedures can substantially overstate true performance, particularly when multiple models or parameter choices are explored.
+Recent work emphasizes the importance of validation techniques that explicitly account for these issues. \citet{lopez2018advances} and \citet{bailey2017probability} introduce methods such as purged cross-validation and the Probability of Backtest Overfitting (PBO) to quantify selection bias. These tools are increasingly viewed as essential diagnostics in empirical finance.
+The objective of this paper is not to propose new predictive signals or modeling techniques. Instead, we conduct a large-scale empirical implementation of established methods to evaluate how apparent predictability in simple cross-sectional equity strategies changes under rigorous validation. This work is best interpreted as a replication and robustness study intended to highlight methodological considerations rather than to claim novel alpha.
+
+% ======================================================
+\section{Scope and Author Contribution}
+This study focuses on implementing and evaluating existing methodologies from the empirical asset pricing and quantitative finance literature. All features, models, and validation techniques used in this paper are drawn directly from prior published work. The primary contribution lies in the empirical integration of these components within a single reproducible framework and the analysis of their combined implications.
+The authors emphasize transparency, conservative interpretation, and methodological clarity. No claim of methodological novelty is made, and results are presented as illustrative evidence of common challenges in cross-sectional return prediction rather than as a deployable trading strategy.
+
+% ======================================================
+\section{Data}
+The dataset consists of daily U.S. equity observations spanning multiple decades and includes approximately 7,900 tradable securities, totaling over 25 million stock-day records. The sample is constructed to avoid survivorship bias and includes standard common equity listings.
+Data preprocessing includes the removal of invalid prices, alignment of trading calendars, and basic liquidity filtering. Forward one-day returns are computed using close-to-close prices. All features are constructed using information available at time \(t\), ensuring the absence of look-ahead bias.
+The raw price and volume data are sourced from the publicly available Kaggle dataset “Price and Volume Data for All US Stocks \& ETFs” compiled by Marjanovi\'c \citep{kaggle_us_equities}. The dataset contains daily open, high, low, close, and volume information for U.S. equities and exchange-traded funds and is widely used for educational and empirical research purposes.
+% ======================================================
+\section{Feature Construction}
+We implement nine simple and interpretable features motivated by the existing literature. Features are grouped into momentum, reversal, and volume categories and are standardized cross-sectionally by date.
+
+\begin{table}[H]
+\centering
+\caption{Summary of Implemented Features}
+\begin{tabular}{ll}
+\toprule
+Category & Feature Definition \\
+\midrule
+Momentum & Rank(z-score($r_{t-5:t}$)) \\
+Momentum & Rank(z-score($r_{t-10:t}$)) \\
+Momentum & Rank(z-score($r_{t-20:t}$)) \\
+Reversal & Rank(z-score($-r_{t-1}$)) \\
+Reversal & Rank(z-score($-r_{t-3:t}$)) \\
+Reversal & Rank(z-score($-r_{t-5:t}$)) \\
+Volume & Rank(z-score(relative volume)) \\
+Volume & Rank(z-score(volume surprise)) \\
+Volume & Rank(z-score(turnover)) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ======================================================
+\section{Model and Portfolio Construction}
+A regularized linear classification model is trained to predict the sign of next-day returns. Model outputs are interpreted as cross-sectional scores rather than precise forecasts.
+Each day, scores are normalized to construct a dollar-neutral long-short portfolio with unit gross exposure. Position sizes are capped to limit concentration. The portfolio is rebalanced daily, resulting in relatively high turnover typical of short-horizon cross-sectional strategies.
+
+% ======================================================
+\section{Validation Methodology}
+\subsection{Combinatorially Purged Cross-Validation}
+We employ Combinatorially Purged Cross-Validation (CPCV) to generate multiple train-test splits while removing observations near fold boundaries. This procedure mitigates information leakage due to serial dependence and overlapping return windows.
+\subsection{Probability of Backtest Overfitting}
+To assess selection bias, we compute the Probability of Backtest Overfitting (PBO). Models are ranked by in-sample Sharpe ratio, and PBO measures the frequency with which top-ranked configurations underperform out-of-sample.
+
+% ======================================================
+\section{Results}
+
+\begin{table}[H]
+\centering
+\caption{Performance Summary Across CPCV Folds}
+\begin{tabular}{lc}
+\toprule
+Metric & Value \\
+\midrule
+Mean In-Sample Sharpe & 0.22 \\
+Mean Out-of-Sample Sharpe & 0.03 \\
+Probability of Backtest Overfitting (PBO) & 0.60 \\
+Average Daily Turnover & 0.57 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{equity_curve.png}
+\caption{Cumulative returns of the strategy. Performance is unstable and exhibits limited long-term growth. Note: The y-axis is broken to preserve visibility of early-period dynamics.}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{pbo_scatter.png}
+\caption{In-sample vs. out-of-sample Sharpe ratios across CPCV folds, illustrating selection bias.}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{cost_sweep.png}
+\caption{Sharpe ratio sensitivity to transaction costs. Even modest costs materially degrade performance.}
+\end{figure}
+
+% ======================================================
+\section{Discussion}
+The results demonstrate that weak cross-sectional predictability observed in-sample does not reliably persist out-of-sample under rigorous validation. High turnover further constrains economic feasibility. The estimated PBO of approximately 0.60 suggests that a substantial portion of in-sample performance may be attributable to selection effects.
+These findings are consistent with recent critiques emphasizing the fragility of many documented anomalies once proper controls for multiple testing and dependence are applied.
+
+% ======================================================
+\section{Limitations}
+This study does not model market impact, borrow costs, or sector neutrality. Feature construction is intentionally simple and excludes alternative data or nonlinear transformations. Results are historical and may not generalize to future market conditions.
+
+% ======================================================
+\section{Conclusion}
+This paper presents an empirical evaluation of simple cross-sectional equity signals using modern backtest overfitting diagnostics. By implementing established methodologies on a large dataset, we show that apparent predictability can diminish substantially under rigorous validation. The study highlights the importance of conservative modeling and robust evaluation practices in empirical finance.
+
+% ======================================================
+\section*{Acknowledgments}
+
+The authors thank Inspirit AI for their guidance and support.
+Inspirit AI's project-based mentorship and instruction in applied artificial intelligence were helpful in shaping the authors’ understanding of AI concepts and their practical implementation.
+This project was initiated during the authors’ pre-college studies and substantially expanded during their first year of undergraduate study.
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

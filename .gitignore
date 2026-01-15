@@ -17,7 +17,7 @@ pyvenv.cfg
 # Jupyter / temp
 .ipynb_checkpoints/
 TempChunks/
-
+etc/jupyter/
 # Data & outputs
 data/*.csv
 *.parquet

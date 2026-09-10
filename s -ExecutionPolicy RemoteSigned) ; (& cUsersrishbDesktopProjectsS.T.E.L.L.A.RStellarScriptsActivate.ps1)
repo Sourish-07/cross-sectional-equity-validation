@@ -1,0 +1,487 @@
+[1mdiff --git a/results/cost_sweep.csv b/results/cost_sweep.csv[m
+[1mindex ad2ea1a..4ae1e68 100644[m
+[1m--- a/results/cost_sweep.csv[m
+[1m+++ b/results/cost_sweep.csv[m
+[36m@@ -1,5 +1,5 @@[m
+[31m-cost,sharpe[m
+[31m-0.0,0.23830289640785213[m
+[31m-0.0005,0.23830287690461505[m
+[31m-0.001,0.23830283789814083[m
+[31m-0.002,0.23830277938842956[m
+[32m+[m[32mcost,sharpe,mean_daily_cost_drag[m
+[32m+[m[32m0.0,-0.5950425597090343,0.0[m
+[32m+[m[32m0.0005,-1.030412647161583,0.0001811105[m
+[32m+[m[32m0.001,-1.4654948797341647,0.000362221[m
+[32m+[m[32m0.002,-2.334199931959754,0.000724442[m
+[1mdiff --git a/src/backtest.py b/src/backtest.py[m
+[1mindex 8dab0a4..57561a5 100644[m
+[1m--- a/src/backtest.py[m
+[1m+++ b/src/backtest.py[m
+[36m@@ -1,122 +1,48 @@[m
+ import pandas as pd[m
+ import numpy as np[m
+[32m+[m[32mfrom portfolio import build_weights, compute_turnover, compute_daily_returns, sharpe[m
+ [m
+ FEATURE_PATH = "data/processed/features.parquet"[m
+ PRED_PATH = "data/processed/predictions.parquet"[m
+ [m
+ TRADING_DAYS = 252[m
+[31m-TARGET_DAILY_VOL = 0.01     # 1% daily vol target[m
+[31m-TCOST = 0.0005              # 5 bps per unit turnover[m
+[31m-MAX_WEIGHT = 0.05           # leverage cap per asset[m
+[31m-[m
+[31m-[m
+[31m-def normalize(x):[m
+[31m-    """L1-normalize cross-section"""[m
+[31m-    s = np.sum(np.abs(x))[m
+[31m-    if s == 0 or np.isnan(s):[m
+[31m-        return np.zeros_like(x)[m
+[31m-    return x / s[m
+[31m-[m
+[32m+[m[32mTARGET_DAILY_VOL = 0.01[m
+[32m+[m[32mTCOST = 0.0005[m
+ [m
+ def main():[m
+[31m-    # ---------------------------[m
+[31m-    # Load predictions[m
+[31m-    # ---------------------------[m
+     preds = pd.read_parquet(PRED_PATH)[m
+[31m-[m
+     if "pred" not in preds.columns:[m
+         raise ValueError("Prediction column 'pred' missing.")[m
+ [m
+[31m-    # ---------------------------[m
+[31m-    # Load realized forward returns[m
+[31m-    # ---------------------------[m
+[31m-    feats = pd.read_parquet(FEATURE_PATH)[[m
+[31m-        ["date", "ticker", "ret_fwd"][m
+[31m-    ][m
+[31m-[m
+[31m-    # ---------------------------[m
+[31m-    # Merge predictions + returns[m
+[31m-    # ---------------------------[m
+[31m-    df = preds.merge([m
+[31m-        feats,[m
+[31m-        on=["date", "ticker"],[m
+[31m-        how="inner"[m
+[31m-    )[m
+[31m-[m
+[31m-    # ---------------------------[m
+[31m-    # Cross-sectional portfolio[m
+[31m-    # ---------------------------[m
+[31m-    df["weight"] = ([m
+[31m-        df.groupby("date", group_keys=False)["pred"][m
+[31m-          .transform(normalize)[m
+[31m-          .clip(-MAX_WEIGHT, MAX_WEIGHT)[m
+[31m-    )[m
+[32m+[m[32m    feats = pd.read_parquet(FEATURE_PATH)[["date", "ticker", "ret_fwd"]][m
+[32m+[m[32m    df = preds.merge(feats, on=["date", "ticker"], how="inner")[m
+ [m
+[31m-    # ---------------------------[m
+[31m-    # Raw daily portfolio returns[m
+[31m-    # ---------------------------[m
+[31m-    daily = ([m
+[31m-        df.groupby("date", group_keys=False)[m
+[31m-          .apply(lambda x: np.sum(x["weight"] * x["ret_fwd"]))[m
+[31m-          .sort_index()[m
+[31m-    )[m
+[32m+[m[32m    df["w"] = build_weights(df)[m
+[32m+[m[32m    turnover = compute_turnover(df, weight_col="w")[m
+[32m+[m[32m    daily = compute_daily_returns(df, weight_col="w", ret_col="ret_fwd")[m
+ [m
+[31m-    # ---------------------------[m
+[31m-    # Volatility targeting[m
+[31m-    # ---------------------------[m
+[31m-    rolling_vol = daily.rolling(20).std()[m
+[32m+[m[32m    rolling_vol = daily.rolling(20).std().shift(1)  # lagged: no lookahead into same-day sizing[m
+     vol_scale = (TARGET_DAILY_VOL / rolling_vol).clip(0, 3)[m
+     daily_vol_targeted = daily * vol_scale[m
+[31m-[m
+[31m-    # ---------------------------[m
+[31m-    # Transaction costs[m
+[31m-    # ---------------------------[m
+[31m-    turnover = ([m
+[31m-        df.sort_values(["ticker", "date"])[m
+[31m-          .groupby("ticker")["weight"][m
+[31m-          .diff()[m
+[31m-          .abs()[m
+[31m-          .groupby(df["date"])[m
+[31m-          .sum()[m
+[31m-          .fillna(0)[m
+[31m-    )[m
+[31m-[m
+     daily_net = daily_vol_targeted - TCOST * turnover[m
+ [m
+[31m-    # ---------------------------[m
+[31m-    # Performance metrics[m
+[31m-    # ---------------------------[m
+[31m-    mean = daily_net.mean()[m
+[31m-    std = daily_net.std()[m
+[31m-[m
+[31m-    sharpe = mean / std * np.sqrt(TRADING_DAYS) if std > 0 else np.nan[m
+[32m+[m[32m    sr = sharpe(daily_net, TRADING_DAYS)[m
+ [m
+[31m-    cum = (1 + daily_net).cumprod()[m
+[31m-    drawdown = cum / cum.cummax() - 1[m
+[31m-    max_dd = drawdown.min()[m
+[31m-[m
+[31m-    # ---------------------------[m
+[31m-    # Information Coefficient (IC)[m
+[31m-    # ---------------------------[m
+[31m-    ic = ([m
+[31m-        df.groupby("date", group_keys=False)[m
+[31m-          .apply(lambda x: np.corrcoef(x["pred"], x["ret_fwd"])[0, 1])[m
+[31m-          .dropna()[m
+[31m-    )[m
+[32m+[m[32m    cum = (1 + daily_net.fillna(0)).cumprod()[m
+[32m+[m[32m    max_dd = (cum / cum.cummax() - 1).min()[m
+ [m
+[32m+[m[32m    ic = df.groupby("date").apply([m
+[32m+[m[32m        lambda x: np.corrcoef(x["pred"], x["ret_fwd"])[0, 1], include_groups=False[m
+[32m+[m[32m    ).dropna()[m
+     ic_mean = ic.mean()[m
+     ic_t = ic_mean / ic.std() * np.sqrt(len(ic)) if ic.std() > 0 else np.nan[m
+ [m
+[31m-    # ---------------------------[m
+[31m-    # Print results[m
+[31m-    # ---------------------------[m
+[31m-    print("\n===== BACKTEST RESULTS =====")[m
+[31m-    print(f"Annualized Sharpe (net): {sharpe:.3f}")[m
+[32m+[m[32m    print("\n===== BACKTEST RESULTS (dollar-neutral) =====")[m
+[32m+[m[32m    print(f"Annualized Sharpe (net): {sr:.3f}")[m
+     print(f"Max Drawdown: {max_dd:.2%}")[m
+     print(f"Mean IC: {ic_mean:.4f}")[m
+     print(f"IC t-stat: {ic_t:.2f}")[m
+[31m-    print("============================\n")[m
+[31m-[m
+[32m+[m[32m    print("==============================================\n")[m
+ [m
+ if __name__ == "__main__":[m
+[31m-    main()[m
+[32m+[m[32m    main()[m
+\ No newline at end of file[m
+[1mdiff --git a/src/cost_sweep.py b/src/cost_sweep.py[m
+[1mindex 54742eb..bb97ca4 100644[m
+[1m--- a/src/cost_sweep.py[m
+[1m+++ b/src/cost_sweep.py[m
+[36m@@ -1,27 +1,29 @@[m
+ import os[m
+ import pandas as pd[m
+ import numpy as np[m
+[32m+[m[32mfrom portfolio import build_weights, compute_turnover, sharpe[m
+ [m
+ os.makedirs("results", exist_ok=True)[m
+ [m
+ pred = pd.read_parquet("data/processed/predictions.parquet")[m
+[31m-rets = pd.read_parquet("data/processed/features.parquet")[["date","ticker","ret_fwd"]][m
+[32m+[m[32mrets = pd.read_parquet("data/processed/features.parquet")[["date", "ticker", "ret_fwd"]][m
+[32m+[m[32mdf = pred.merge(rets, on=["date", "ticker"], how="inner")[m
+ [m
+[31m-df = pred.merge(rets, on=["date","ticker"], how="inner")[m
+[31m-[m
+[31m-df["w"] = df.groupby("date")["pred"].transform([m
+[31m-    lambda x: (x - x.mean()) / (x.abs().sum() + 1e-12)[m
+[31m-)[m
+[31m-df["dw"] = df.groupby("ticker")["w"].diff().abs().fillna(0)[m
+[32m+[m[32mdf["w"] = build_weights(df)[m
+[32m+[m[32mturnover_daily = compute_turnover(df, weight_col="w")[m
+[32m+[m[32mgross_daily = df.groupby("date").apply([m
+[32m+[m[32m    lambda x: np.sum(x["w"] * x["ret_fwd"]), include_groups=False[m
+[32m+[m[32m).sort_index()[m
+ [m
+ rows = [][m
+ for c in [0, 5e-4, 1e-3, 2e-3]:[m
+[31m-    daily = df.groupby("date", observed=True).apply([m
+[31m-        lambda x: np.sum(x["w"] * x["ret_fwd"]) - c * x["dw"].sum()[m
+[31m-    )[m
+[31m-    sharpe = np.sqrt(252) * daily.mean() / daily.std()[m
+[31m-    rows.append({"cost": c, "sharpe": sharpe})[m
+[32m+[m[32m    net_daily = gross_daily - c * turnover_daily[m
+[32m+[m[32m    rows.append({[m
+[32m+[m[32m        "cost": c,[m
+[32m+[m[32m        "sharpe": sharpe(net_daily),[m
+[32m+[m[32m        "mean_daily_cost_drag": c * turnover_daily.mean()  # sanity check — must increase with c[m
+[32m+[m[32m    })[m
+ [m
+ out = pd.DataFrame(rows)[m
+ out.to_csv("results/cost_sweep.csv", index=False)[m
+[31m-print(out)[m
+[32m+[m[32mprint(out)[m
+\ No newline at end of file[m
+[1mdiff --git a/src/dsr.py b/src/dsr.py[m
+[1mindex 51825f7..9824d9d 100644[m
+[1m--- a/src/dsr.py[m
+[1m+++ b/src/dsr.py[m
+[36m@@ -1,38 +1,32 @@[m
+ import numpy as np[m
+ import pandas as pd[m
+ from scipy.stats import norm[m
+[32m+[m[32mfrom portfolio import build_weights, compute_daily_returns, sharpe[m
+[32m+[m[32mfrom trials import TRIALS[m
+ [m
+ PRED_PATH = "data/processed/predictions.parquet"[m
+ FEATURE_PATH = "data/processed/features.parquet"[m
+ [m
+ def deflated_sharpe(sr, n, trials):[m
+[31m-    z = (sr * np.sqrt(n))[m
+[32m+[m[32m    z = sr * np.sqrt(n)[m
+     penalty = norm.ppf(1 - 1 / trials)[m
+     return (z - penalty) / np.sqrt(n)[m
+ [m
+ def main():[m
+     preds = pd.read_parquet(PRED_PATH)[m
+     feats = pd.read_parquet(FEATURE_PATH)[["date", "ticker", "ret_fwd"]][m
+[31m-[m
+     df = preds.merge(feats, on=["date", "ticker"])[m
+[32m+[m[32m    df["w"] = build_weights(df)[m
+[32m+[m[32m    daily = compute_daily_returns(df, weight_col="w", ret_col="ret_fwd")[m
+ [m
+[31m-    df["w"] = ([m
+[31m-        df.groupby("date")["pred"][m
+[31m-        .transform(lambda x: x / np.sum(np.abs(x)))[m
+[31m-        .clip(-0.05, 0.05)[m
+[31m-    )[m
+[31m-[m
+[31m-    daily = ([m
+[31m-        df.groupby("date", observed=True)[m
+[31m-        .apply(lambda x: np.sum(x["w"] * x["ret_fwd"]))[m
+[31m-    )[m
+[31m-[m
+[31m-    sr = daily.mean() / daily.std() * np.sqrt(252)[m
+[31m-    dsr = deflated_sharpe(sr, len(daily), trials=20)[m
+[32m+[m[32m    sr = sharpe(daily)[m
+[32m+[m[32m    n_trials = len(TRIALS)  # derived from the actual trial grid, not hardcoded[m
+[32m+[m[32m    dsr = deflated_sharpe(sr, len(daily.dropna()), trials=n_trials)[m
+ [m
+     print("===== DEFLATED SHARPE =====")[m
+     print(f"Sharpe: {sr:.3f}")[m
+[32m+[m[32m    print(f"Trials used for penalty: {n_trials}")[m
+     print(f"Deflated Sharpe: {dsr:.3f}")[m
+ [m
+ if __name__ == "__main__":[m
+[31m-    main()[m
+[32m+[m[32m    main()[m
+\ No newline at end of file[m
+[1mdiff --git a/src/features.py b/src/features.py[m
+[1mindex a252ae6..7eeacb7 100644[m
+[1m--- a/src/features.py[m
+[1m+++ b/src/features.py[m
+[36m@@ -2,7 +2,7 @@[m [mimport pandas as pd[m
+ import numpy as np[m
+ from pathlib import Path[m
+ [m
+[31m-DATA_PATH = "data/master_stock_data_2000_2026.csv"[m
+[32m+[m[32mDATA_PATH = "data/master_stock_data_paper2_snapshot.csv"[m
+ OUT_PATH = Path("data/processed/features.parquet")[m
+ [m
+ def main():[m
+[36m@@ -21,8 +21,46 @@[m [mdef main():[m
+         print(f"Removed {bad.sum():,} invalid price rows")[m
+         df = df.loc[~bad][m
+ [m
+[32m+[m[32m    # ---------------------------------------------------------------[m
+[32m+[m[32m    # Liquidity filter: excludes thinly-traded instruments (warrants,[m
+[32m+[m[32m    # illiquid micro-caps) whose stale/discretized pricing structurally[m
+[32m+[m[32m    # distorts predictability, using price/volume thresholds rather than[m
+[32m+[m[32m    # ticker-name heuristics to avoid false positives on legitimate[m
+[32m+[m[32m    # low-priced tickers.[m
+[32m+[m[32m    # ---------------------------------------------------------------[m
+[32m+[m[32m    df["dollar_vol"] = df["close"] * df["volume"][m
+[32m+[m[32m    median_dollar_vol = ([m
+[32m+[m[32m        df.groupby("ticker")["dollar_vol"][m
+[32m+[m[32m        .transform(lambda x: x.rolling(20, min_periods=10).median())[m
+[32m+[m[32m    )[m
+[32m+[m[32m    liquid = (df["close"] >= 1.0) & (median_dollar_vol >= 250_000)[m
+[32m+[m[32m    n_excluded = (~liquid).sum()[m
+[32m+[m[32m    print(f"Excluding {n_excluded:,} illiquid rows ({n_excluded/len(df):.1%} of data)")[m
+[32m+[m[32m    df = df[liquid].drop(columns=["dollar_vol"])[m
+[32m+[m
+     # Returns[m
+     df["ret"] = df.groupby("ticker")["close"].pct_change()[m
+[32m+[m
+[32m+[m[32m    # ---------------------------------------------------------------[m
+[32m+[m[32m    # Sanity filter: remove rows with implausible single-day returns.[m
+[32m+[m[32m    # Confirmed via manual inspection (e.g. GOOGL 2017-11-10 -> 2017-11-13,[m
+[32m+[m[32m    # price drops ~20.2x with no corresponding real corporate action) that[m
+[32m+[m[32m    # the raw source data contains a market-wide price-convention/rebasing[m
+[32m+[m[32m    # discontinuity around 2017-11-10, affecting ~24% of tickers on that[m
+[32m+[m[32m    # date alone. A liquid common stock does not move >75% in one day[m
+[32m+[m[32m    # absent a real corporate action already reflected in split-adjusted[m
+[32m+[m[32m    # pricing, so this bound is a conservative, principled cut that removes[m
+[32m+[m[32m    # this artifact (and any similar ones elsewhere in the file) without[m
+[32m+[m[32m    # touching genuine high-volatility days (e.g. March 2020).[m
+[32m+[m[32m    # NOTE / limitation: this only catches rebasing events with a factor[m
+[32m+[m[32m    # >1.75x; smaller undetected rebasing on the same date boundary may[m
+[32m+[m[32m    # remain. Documented as a known data limitation.[m
+[32m+[m[32m    # ---------------------------------------------------------------[m
+[32m+[m[32m    extreme_ret = df["ret"].abs() > 0.75[m
+[32m+[m[32m    n_extreme = extreme_ret.sum()[m
+[32m+[m[32m    print(f"Flagging {n_extreme:,} rows with |1-day return| > 75% as data artifacts")[m
+[32m+[m[32m    df = df[~extreme_ret][m
+[32m+[m
+     df["ret_fwd"] = df.groupby("ticker")["ret"].shift(-1)[m
+ [m
+     # Volatility[m
+[36m@@ -72,4 +110,4 @@[m [mdef main():[m
+     print(f"Saved → {OUT_PATH}")[m
+ [m
+ if __name__ == "__main__":[m
+[31m-    main()[m
+[32m+[m[32m    main()[m
+\ No newline at end of file[m
+[1mdiff --git a/src/pbo.py b/src/pbo.py[m
+[1mindex f5d6163..4e24523 100644[m
+[1m--- a/src/pbo.py[m
+[1m+++ b/src/pbo.py[m
+[36m@@ -1,75 +1,38 @@[m
+ import numpy as np[m
+ import pandas as pd[m
+ from validation import get_cpcv_splits[m
+[32m+[m[32mfrom portfolio import build_weights, compute_daily_returns, sharpe[m
+ import os[m
+ [m
+ FEATURE_PATH = "data/processed/features.parquet"[m
+ PRED_PATH = "data/processed/predictions.parquet"[m
+ OUT_PATH = "data/processed/pbo_results.parquet"[m
+ [m
+[31m-def sharpe(x):[m
+[31m-    x = x.dropna()[m
+[31m-    if x.std() == 0 or len(x) < 5:[m
+[31m-        return np.nan[m
+[31m-    return np.sqrt(252) * x.mean() / x.std()[m
+[31m-[m
+ def compute_portfolio_returns(df):[m
+     df = df.copy()[m
+[31m-[m
+[31m-    # Dollar-neutral, leverage-normalized portfolio[m
+[31m-    df["w"] = ([m
+[31m-        df.groupby("date", observed=True)["pred"][m
+[31m-        .transform(lambda x: (x - x.mean()) / (x.abs().sum() + 1e-12))[m
+[31m-        .clip(-0.05, 0.05)[m
+[31m-    )[m
+[31m-[m
+[31m-    daily = ([m
+[31m-        df.groupby("date", observed=True)[m
+[31m-        .apply(lambda x: np.sum(x["w"] * x["ret_fwd"]))[m
+[31m-    )[m
+[31m-[m
+[31m-    return daily[m
+[32m+[m[32m    df["w"] = build_weights(df)[m
+[32m+[m[32m    return compute_daily_returns(df, weight_col="w", ret_col="ret_fwd")[m
+ [m
+ def main():[m
+     os.makedirs("data/processed", exist_ok=True)[m
+[31m-[m
+     preds = pd.read_parquet(PRED_PATH)[m
+     feats = pd.read_parquet(FEATURE_PATH)[["date", "ticker", "ret_fwd"]][m
+[32m+[m[32m    df = preds.merge(feats, on=["date", "ticker"], how="inner").sort_values("date").reset_index(drop=True)[m
+ [m
+[31m-    df = ([m
+[31m-        preds.merge(feats, on=["date", "ticker"], how="inner")[m
+[31m-        .sort_values("date")[m
+[31m-        .reset_index(drop=True)[m
+[31m-    )[m
+[31m-[m
+[31m-    is_sharpes = [][m
+[31m-    oos_sharpes = [][m
+[31m-[m
+[32m+[m[32m    is_sharpes, oos_sharpes = [], [][m
+     for tr_idx, te_idx in get_cpcv_splits(df["date"]):[m
+[31m-        is_df = df.iloc[tr_idx][m
+[31m-        oos_df = df.iloc[te_idx][m
+[31m-[m
+[31m-        is_daily = compute_portfolio_returns(is_df)[m
+[31m-        oos_daily = compute_portfolio_returns(oos_df)[m
+[31m-[m
+[31m-        is_sharpes.append(sharpe(is_daily))[m
+[31m-        oos_sharpes.append(sharpe(oos_daily))[m
+[32m+[m[32m        is_sharpes.append(sharpe(compute_portfolio_returns(df.iloc[tr_idx])))[m
+[32m+[m[32m        oos_sharpes.append(sharpe(compute_portfolio_returns(df.iloc[te_idx])))[m
+ [m
+     is_sharpes = np.array(is_sharpes)[m
+     oos_sharpes = np.array(oos_sharpes)[m
+ [m
+[31m-    # PBO calculation (Bailey et al.)[m
+     ranks = pd.Series(is_sharpes).rank(ascending=False)[m
+     top_half = ranks <= len(ranks) / 2[m
+     failures = oos_sharpes[top_half] < np.nanmedian(oos_sharpes)[m
+     pbo = np.nanmean(failures)[m
+ [m
+[31m-    # Save fold-level results (CRITICAL for figures + appendix)[m
+[31m-    out = pd.DataFrame({[m
+[31m-        "is_sharpe": is_sharpes,[m
+[31m-        "oos_sharpe": oos_sharpes[m
+[31m-    })[m
+[31m-    out.to_parquet(OUT_PATH)[m
+[32m+[m[32m    pd.DataFrame({"is_sharpe": is_sharpes, "oos_sharpe": oos_sharpes}).to_parquet(OUT_PATH)[m
+ [m
+     print("===== PBO ANALYSIS =====")[m
+     print(f"Mean IS Sharpe:  {np.nanmean(is_sharpes):.2f}")[m
+[36m@@ -78,4 +41,4 @@[m [mdef main():[m
+     print("========================")[m
+ [m
+ if __name__ == "__main__":[m
+[31m-    main()[m
+[32m+[m[32m    main()[m
+\ No newline at end of file[m
+[1mdiff --git a/src/run_cv.py b/src/run_cv.py[m
+[1mindex 866686d..0ad120a 100644[m
+[1m--- a/src/run_cv.py[m
+[1m+++ b/src/run_cv.py[m
+[36m@@ -12,82 +12,77 @@[m [mOUT_PATH = "data/processed/predictions.parquet"[m
+ [m
+ CHUNK_SIZE = 2_000_000[m
+ [m
+[32m+[m[32m# "ret_fwd" is the forward return used to construct "target" — it must[m
+[32m+[m[32m# never be used as a model input, or the label leaks directly into the[m
+[32m+[m[32m# features. Confirmed via diagnostic: this was leaking in every prior[m
+[32m+[m[32m# run but was masked by extreme outliers in ret_fwd until the data was[m
+[32m+[m[32m# cleaned, at which point the model began exploiting it directly[m
+[32m+[m[32m# (AUC ~0.9999 across all folds).[m
+ EXCLUDE_COLS = {[m
+[31m-        "date", "ticker", "target", "open", "high", "low", "close", "volume", "source"[m
+[31m-    }[m
+[32m+[m[32m    "date", "ticker", "target", "ret_fwd", "open", "high", "low", "close", "volume", "source"[m
+[32m+[m[32m}[m
+ [m
+ def main():[m
+[31m-        df = pd.read_parquet(FEATURES_PATH)[m
+[31m-        df = df.sort_values("date").reset_index(drop=True)[m
+[31m-[m
+[31m-        # ---- Feature detection ----[m
+[31m-        feature_cols = [[m
+[31m-            c for c in df.columns[m
+[31m-            if c not in EXCLUDE_COLS and pd.api.types.is_numeric_dtype(df[c])[m
+[31m-        ][m
+[31m-[m
+[31m-        if not feature_cols:[m
+[31m-            raise ValueError("No usable feature columns detected.")[m
+[31m-[m
+[31m-        print(f"Using {len(feature_cols)} features:")[m
+[31m-        print(feature_cols)[m
+[31m-[m
+[31m-        X = df[feature_cols].astype("float32")[m
+[31m-        y = df["target"].astype("int8")[m
+[31m-[m
+[31m-        preds = np.full(len(df), np.nan, dtype="float32")[m
+[31m-[m
+[31m-        # ---- Cross-validation ----[m
+[31m-        for k, (tr, te) in enumerate(get_cpcv_splits(df["date"])):[m
+[31m-            print(f"Fold {k+1}")[m
+[31m-[m
+[31m-            scaler = StandardScaler()[m
+[31m-            imputer = SimpleImputer(strategy="median")[m
+[31m-[m
+[31m-            model = SGDClassifier([m
+[31m-                loss="log_loss",[m
+[31m-                penalty="l2",[m
+[31m-                alpha=1e-4,[m
+[31m-                max_iter=1,[m
+[31m-                learning_rate="optimal",[m
+[31m-                warm_start=True[m
+[31m-            )[m
+[31m-[m
+[31m-            # ---- FIT IMPUTER ON FULL TRAIN (ONCE) ----[m
+[31m-            imputer.fit(X.iloc[tr])[m
+[31m-[m
+[31m-            # ---- FIT SCALER 

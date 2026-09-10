@@ -3,11 +3,20 @@ import pandas as pd
 
 def get_cpcv_splits(dates, n_splits=20, embargo_days=5 * 21):
     """
-    Combinatorial Purged Cross-Validation with embargo.
+    Purged K-Fold Cross-Validation with embargo, split by row count
+    (not unique date count) so folds carry comparable sample weight
+    despite the U.S. equity universe growing ~20x in ticker count
+    from 2000 to 2016.
     """
     dates = pd.to_datetime(dates)
-    unique_dates = dates.sort_values().unique()
-    folds = np.array_split(unique_dates, n_splits)
+    date_counts = dates.value_counts().sort_index()   # rows per unique date
+    cum_rows = date_counts.cumsum()
+    total_rows = cum_rows.iloc[-1]
+    boundaries = np.linspace(0, total_rows, n_splits + 1)
+
+    unique_dates = date_counts.index.values
+    fold_edges = np.searchsorted(cum_rows.values, boundaries[1:-1])
+    folds = np.split(unique_dates, fold_edges)
 
     embargo = pd.Timedelta(days=embargo_days)
 

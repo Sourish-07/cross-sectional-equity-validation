@@ -24,6 +24,7 @@ data/*.csv
 *.csv~
 dataset_creation_log.txt
 view.pdf
+data/processed/*.zip
 
 # Scratch / personal
 111.py
